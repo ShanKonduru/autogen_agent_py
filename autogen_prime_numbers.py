@@ -25,6 +25,13 @@ config_list = [
     }
 ]
 
+# --- Start AutoGen Runtime Logging to a .log file ---
+# This will create a file named 'conversation_log.log' in your current directory.
+# You can change the filename to anything you like, e.g., 'my_chat.txt'.
+logging_session_id = autogen.runtime_logging.start(logger_type="file", config={"filename": "conversation_log.log"})
+print(f"AutoGen logging started. Session ID: {logging_session_id}")
+print("Logs will be saved to 'conversation_log.log'.")
+
 
 # --- Agent Definitions ---
 
@@ -122,3 +129,7 @@ user_proxy.initiate_chat(
 
 print("\n--- Conversation Ended ---")
 print("Check the 'coding' directory for any generated files.")
+
+# --- Stop AutoGen Runtime Logging ---
+autogen.runtime_logging.stop()
+print("AutoGen logging stopped. You can now review 'conversation_log.log'.")
