@@ -1,2 +1,5 @@
 dotenv
+openai
+ag2[openai]
 pyautogen
+
