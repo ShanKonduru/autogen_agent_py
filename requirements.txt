@@ -1,4 +1,6 @@
 dotenv
+autogen-ext[ollama]
+ag2[ollama]
 openai
 ag2[openai]
 pyautogen

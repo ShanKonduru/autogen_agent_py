@@ -3,64 +3,80 @@ import os
 from dotenv import load_dotenv
 import sys
 
-print("--- Starting test_autogen_execution.py ---")
+print("--- Starting test_autogen_execution.py ---", flush=True)
 
 # --- API Key and Environment Check ---
-print("Attempting to load .env file...")
+print("Attempting to load .env file...", flush=True)
 load_dotenv()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
+api_key = "ollama"
+
 if not openai_api_key:
-    print("\nERROR: OPENAI_API_KEY not found.")
-    print("Please ensure you have a '.env' file in the same directory as this script.")
-    print("Inside '.env', it should contain: OPENAI_API_KEY='your_openai_api_key_here'")
-    print("Exiting script.")
+    print("\nERROR: OPENAI_API_KEY not found.", flush=True)
+    print("Please ensure you have a '.env' file in the same directory as this script.", flush=True)
+    print("Inside '.env', it should contain: OPENAI_API_KEY='your_openai_api_key_here'", flush=True)
+    print("Exiting script.", flush=True)
     sys.exit(1)
 else:
-    print("OPENAI_API_KEY successfully loaded (or found in environment variables).")
-    print(f"API Key start: {openai_api_key[:5]}...")
+    print("OPENAI_API_KEY successfully loaded (or found in environment variables).", flush=True)
+    print(f"API Key start: {api_key[:5]}...", flush=True)
 
 # --- AutoGen Configuration ---
-config_list = [
+openai_config_list = [
     {
-        "model": "gpt-4", # Or "gpt-3.5-turbo"
+        "model": "gpt-4", # Or "gpt-3.5-turbo" if you prefer or have access to only that model
         "api_key": openai_api_key,
     }
 ]
 
+# --- Ollama AutoGen Configuration ---
+ollama_config_list = [
+    {
+        "model": "llama2:13b",
+        "api_key": api_key,
+    },
+    {
+        "model": "llama3.1:latest",
+        "api_key": api_key,
+    },
+    {
+        "model": "llama3.2:latest",
+        "api_key": api_key,
+    }
+]
+
+
 # --- Custom Message Logger for Console ---
-# This function will print messages from agents to the console
 def console_message_logger(recipient, messages, sender, config):
     """
-    Callback function to log messages from AutoGen agents to the console.
+    Callback function to log messages from AutoGen agents to the console,
+    with flushing to ensure immediate display.
     """
-    message = messages[-1] if messages else {} # Get the most recent message
+    message = messages[-1] if messages else {}
     content = message.get("content", "")
 
-    # Clean up content for display, especially if it's a dictionary or complex object
     if isinstance(content, dict):
-        # If it's a tool call, show relevant parts
         if 'tool_code' in content:
             content_display = f"TOOL_CODE (Execution Request):\n{content.get('tool_code', '')}"
         elif 'result' in content:
             content_display = f"TOOL_RESULT (Execution Output):\n{content.get('result', '')}"
         else:
-            content_display = str(content) # Fallback for other dicts
+            content_display = str(content)
     elif not isinstance(content, str):
         content_display = str(content)
     else:
-        content_display = content # It's already a string
+        content_display = content
 
-    print(f"\n--- MESSAGE ---")
-    print(f"SENDER: {sender.name}")
-    print(f"RECIPIENT: {recipient.name}")
-    print(f"CONTENT:\n{content_display}")
-    print(f"---------------\n")
-    return False, None # Continue normal AutoGen processing
+    print(f"\n--- MESSAGE ---", flush=True)
+    print(f"SENDER: {sender.name}", flush=True)
+    print(f"RECIPIENT: {recipient.name}", flush=True)
+    print(f"CONTENT:\n{content_display}", flush=True)
+    print(f"---------------\n", flush=True)
+    return False, None
 
 # --- Agent Definitions ---
-# Helper function to register the custom logger to an agent
 def register_logger_to_agent(agent):
     agent.register_reply(
         [autogen.Agent, None],
@@ -70,22 +86,25 @@ def register_logger_to_agent(agent):
 
 coder = autogen.AssistantAgent(
     name="Coder",
-    llm_config={"config_list": config_list},
-    system_message="You are a helpful assistant that writes Python code. When asked, provide runnable Python code inside a markdown block. Once you have provided the complete and correct code, indicate that you are done by ending your message with 'TERMINATE'.",
+    llm_config={"config_list": ollama_config_list},
+    # MODIFIED: Instruct Coder to wait for execution result before terminating
+    system_message="""You are a helpful assistant that writes Python code. When asked, provide runnable Python code inside a markdown block.
+    After providing the code, **wait for the execution result from the Executor**.
+    If the execution is successful and the task is completed, then and only then, end your final message with 'TASK_COMPLETED'.""",
 )
-register_logger_to_agent(coder) # Register logger for Coder
+register_logger_to_agent(coder)
 
 user_proxy = autogen.UserProxyAgent(
     name="Executor",
     human_input_mode="NEVER",
     code_execution_config={
-        "work_dir": "coding_test", # Use a unique directory for this test
+        "work_dir": "coding_test",
         "use_docker": False,
     },
-    is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
-    max_consecutive_auto_reply=10,
+    is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TASK_COMPLETED"),
+    max_consecutive_auto_reply=20, # Increased turns to allow for more robust interaction
 )
-register_logger_to_agent(user_proxy) # Register logger for Executor
+register_logger_to_agent(user_proxy)
 
 
 # --- Directory Setup ---
@@ -93,43 +112,47 @@ work_dir = "coding_test"
 if not os.path.exists(work_dir):
     try:
         os.makedirs(work_dir)
-        print(f"Created working directory: {os.path.abspath(work_dir)}")
+        print(f"Created working directory: {os.path.abspath(work_dir)}", flush=True)
     except OSError as e:
-        print(f"\nERROR: Could not create working directory '{work_dir}': {e}")
-        print("Please check file permissions or create the directory manually.")
-        print("Exiting script.")
+        print(f"\nERROR: Could not create working directory '{work_dir}': {e}", flush=True)
+        print("Please check file permissions or create the directory manually.", flush=True)
+        print("Exiting script.", flush=True)
         sys.exit(1)
 else:
-    print(f"Working directory already exists: {os.path.abspath(work_dir)}")
+    print(f"Working directory already exists: {os.path.abspath(work_dir)}", flush=True)
 
 
 # --- Initiate Chat ---
-print("\n--- Initiating AutoGen Test Chat (This may take a few seconds) ---")
+print("\n--- Initiating AutoGen Test Chat (EXPECT MESSAGES BELOW THIS LINE) ---", flush=True)
+print("----------------------------------------------------------------------", flush=True)
 try:
     user_proxy.initiate_chat(
         coder,
-        message="""Write a Python script that prints 'Hello from AutoGen file!' to a file named 'hello.txt' in the current working directory, then print the content of that file to the console. Make sure to include the Python code block. End your final message with 'TERMINATE'.""",
+        # MODIFIED: Emphasize the need for execution and confirmation before termination
+        message="""Write a Python script to print first 10 prime numbers, then print the output content to the console.
+        Provide the Python code block. After the Executor runs the code and confirms the output, then you can state 'TASK_COMPLETED'.""",
     )
-    print("\nAutoGen chat initiated successfully.")
+    print("\n----------------------------------------------------------------------", flush=True)
+    print("AutoGen chat initiated successfully.", flush=True)
 except Exception as e:
-    print(f"\nERROR: An error occurred during AutoGen chat initiation: {e}")
-    print("Exiting script.")
+    print(f"\nERROR: An error occurred during AutoGen chat initiation: {e}", flush=True)
+    print("Exiting script.", flush=True)
     sys.exit(1)
 
-print("\n--- Test Chat Finished ---")
+print("\n--- Test Chat Finished ---", flush=True)
 
 # --- Verify File Creation ---
 file_path = os.path.join(work_dir, "hello.txt")
 if os.path.exists(file_path):
-    print(f"\nSUCCESS: '{file_path}' found!")
+    print(f"\nSUCCESS: '{file_path}' found!", flush=True)
     try:
         with open(file_path, 'r') as f:
-            print(f"Content of '{file_path}':")
-            print(f.read())
+            print(f"Content of '{file_path}':", flush=True)
+            print(f.read(), flush=True)
     except Exception as e:
-        print(f"Could not read file '{file_path}': {e}")
+        print(f"Could not read file '{file_path}': {e}", flush=True)
 else:
-    print(f"\nFAILURE: '{file_path}' NOT found.")
-    print("This means the code was likely not executed or the file was not created by the executed code.")
+    print(f"\nFAILURE: '{file_path}' NOT found.", flush=True)
+    print("This means the code was likely not executed or the file was not created by the executed code.", flush=True)
 
-print("--- Script Finished ---")
+print("--- Script Finished ---", flush=True)
