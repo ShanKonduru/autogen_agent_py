@@ -59,17 +59,51 @@ assistant = autogen.AssistantAgent(
     Once the task is complete, reply with 'TERMINATE' to end the conversation."""
 )
 
-# --- Start the Conversation ---
+# --- NEW AGENT: Code Reviewer ---
+reviewer = autogen.AssistantAgent(
+    name="Reviewer",
+    llm_config={"config_list": config_list}, # Reviewer can use the same LLM config
+    system_message="""You are a meticulous Code Reviewer.
+    Your role is to review Python code provided by the Coder.
+    Check for:
+    - Correctness (does it solve the problem accurately?)
+    - Efficiency (can it be optimized for speed or resource usage?)
+    - Readability and adherence to PEP 8 standards.
+    - Edge cases and potential errors.
+    Provide constructive feedback and suggest improvements.
+    If the code is perfect, state 'Looks good!' and pass it back.
+    If changes are needed, explain clearly what needs to be improved."""
+)
+
+# --- Start the Conversation (Modified for Group Chat) ---
 print("\n--- Starting the AutoGen Conversation ---")
-print("User Proxy will initiate the conversation with the Coder agent.")
+print("Setting up a Group Chat with Admin, Coder, and Reviewer agents.")
+
+# 1. Create a GroupChat object
+groupchat = autogen.GroupChat(
+    agents=[user_proxy, assistant, reviewer], # List all agents participating
+    messages=[], # Initial message history (empty for a new chat)
+    max_round=15, # Max number of turns in the group chat
+    speaker_selection_method="auto", # Allows the LLM to decide who speaks next
+    # speaker_selection_method="round_robin", # Alternative: agents speak in a fixed order
+)
+
+# 2. Create a GroupChatManager
+# The GroupChatManager orchestrates the conversation flow within the group.
+# It uses an LLM to decide which agent should speak next based on the conversation context.
+manager = autogen.GroupChatManager(groupchat=groupchat, llm_config={"config_list": config_list})
+
+
+# Now, initiate the chat with the manager
+print("Admin will initiate the conversation with the GroupChatManager.")
 print("Type 'exit' to terminate the human input at any point.")
 
 user_proxy.initiate_chat(
-    assistant,
+    manager, # Initiate chat with the manager, not a single agent
     message="""
     Write a Python script that finds the first 10 prime numbers.
     The script should print these numbers to the console.
-    Please ensure the code is correct and runnable.
+    Ensure the code is reviewed for correctness and efficiency before execution.
     """
 )
 
