@@ -1,31 +1,25 @@
 import streamlit as st
 import autogen
 import os
-from dotenv import load_dotenv # Used for local development to load .env file
+from dotenv import load_dotenv
 
 # --- Streamlit Session State Initialization ---
-# Initialize chat_history to store messages from agents
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-# Initialize is_chatting to manage the state of the conversation (e.g., disable button)
 if "is_chatting" not in st.session_state:
     st.session_state.is_chatting = False
 
 # --- AutoGen Configuration ---
-# Load environment variables for local testing.
-# For deployment on Streamlit Cloud, use st.secrets["OPENAI_API_KEY"] instead.
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
-# Check if the API key is available
 if not openai_api_key:
     st.error("OPENAI_API_KEY not found. Please set it in your Streamlit secrets (for deployment) or in a .env file (for local development).")
-    st.stop() # Stop the Streamlit app if the key is missing
+    st.stop()
 
-# Configuration list for AutoGen agents, specifying models and API key
 config_list = [
     {
-        "model": "gpt-4",  # You can use "gpt-3.5-turbo" for faster, cheaper interactions
+        "model": "gpt-4",
         "api_key": openai_api_key,
     },
     {
@@ -35,54 +29,53 @@ config_list = [
 ]
 
 # --- Custom Message Logger for Streamlit ---
-# This function captures messages exchanged between agents and appends them to Streamlit's session state.
-def custom_message_logger(sender, recipient, message, context):
+# UPDATED: Changed the signature to include 'messages' and 'config'
+def custom_message_logger(recipient, messages, sender, config):
     """
     Callback function to log messages from AutoGen agents to Streamlit's session state.
     This allows the Streamlit UI to display the ongoing conversation.
     """
+    # The actual message content is typically the last message in the 'messages' list
+    message = messages[-1] if messages else {}
+
     # Extract message content. AutoGen messages can have various structures.
     content = message.get("content", "")
     if isinstance(content, dict) and "message" in content:
-        content = content["message"] # Handle cases where content might be nested
+        content = content["message"]
     elif not isinstance(content, str):
-        content = str(content) # Ensure content is a string for display
+        content = str(content)
 
-    # Append the message to the chat history in session state
     st.session_state.chat_history.append({
         "sender": sender.name,
-        "recipient": recipient.name, # Useful for debugging who talks to whom
+        "recipient": recipient.name,
         "message": content
     })
-    # Optional: Print to console for real-time debugging in the terminal
-    # print(f"Logged: {sender.name} -> {recipient.name}: {content[:100]}...") # Truncate for cleaner console output
+    # This return is crucial for AutoGen's internal message handling to continue
+    return False, None # Return False, None to allow other reply functions to process if needed
 
 # --- Agent Definitions ---
-# Helper function to register the custom logger to an agent
 def register_logger_to_agent(agent):
     # Register the custom_message_logger to be called whenever this agent sends a reply
-    agent.register_reply([autogen.Agent, None], custom_message_logger)
+    # The 'reply_func' argument is used to specify the callback function
+    agent.register_reply(
+        [autogen.Agent, None], # Trigger for any agent or None (which covers initiation messages)
+        reply_func=custom_message_logger,
+        config={"callback": None}, # You can pass additional config if needed
+    )
 
-# 1. User Proxy Agent (Admin)
-# This agent acts as the human administrator.
-# human_input_mode="NEVER" is crucial for Streamlit to prevent blocking the UI
-# and waiting for console input during the conversation.
 user_proxy = autogen.UserProxyAgent(
     name="Admin",
     system_message="A human administrator who initiates tasks and reviews final outcomes. You will execute tests and report results as requested by other agents. Do not ask for human input during the conversation.",
     llm_config={"config_list": config_list},
     human_input_mode="NEVER",
     code_execution_config={
-        "work_dir": "coding", # Directory where code will be executed and saved
-        "use_docker": False,  # Set to True if you want to use Docker for isolated execution
+        "work_dir": "coding",
+        "use_docker": False,
     },
-    # Defines when the conversation should terminate
     is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
 )
-register_logger_to_agent(user_proxy) # Register the logger for the Admin agent
+register_logger_to_agent(user_proxy)
 
-# 2. Assistant Agent (Coder)
-# This agent is responsible for writing Python code.
 assistant = autogen.AssistantAgent(
     name="Coder",
     llm_config={"config_list": config_list},
@@ -92,10 +85,8 @@ assistant = autogen.AssistantAgent(
     If you need to run code or tests, suggest it and wait for approval.
     Once the task is complete, reply with 'TERMINATE' to end the conversation."""
 )
-register_logger_to_agent(assistant) # Register the logger for the Coder agent
+register_logger_to_agent(assistant)
 
-# 3. Reviewer Agent
-# This agent provides feedback and critiques on code.
 reviewer = autogen.AssistantAgent(
     name="Reviewer",
     llm_config={"config_list": config_list},
@@ -120,10 +111,8 @@ reviewer = autogen.AssistantAgent(
     Once the code is approved or deemed perfect, you are done.
     """
 )
-register_logger_to_agent(reviewer) # Register the logger for the Reviewer agent
+register_logger_to_agent(reviewer)
 
-# 4. Test Engineer Agent
-# This agent is responsible for creating unit tests.
 test_engineer = autogen.AssistantAgent(
     name="Test_Engineer",
     llm_config={"config_list": config_list},
@@ -139,50 +128,33 @@ test_engineer = autogen.AssistantAgent(
     If tests look good and no more test cases are needed, signal approval for the main script to proceed.
     """
 )
-register_logger_to_agent(test_engineer) # Register the logger for the Test Engineer agent
+register_logger_to_agent(test_engineer)
 
 # --- Group Chat Setup ---
-# Define the group chat with all agents
 groupchat = autogen.GroupChat(
     agents=[user_proxy, assistant, reviewer, test_engineer],
     messages=[],
-    max_round=30, # Increased max_round to allow for more complex conversations and iterations
-    speaker_selection_method="auto", # Auto-selects the next speaker
+    max_round=30,
+    speaker_selection_method="auto",
 )
 
-# The manager orchestrates the group chat
 manager = autogen.GroupChatManager(groupchat=groupchat, llm_config={"config_list": config_list})
 
 
 # --- Function to run the AutoGen conversation ---
-# This function encapsulates the AutoGen chat initiation logic.
 def run_autogen_conversation(prompt):
-    """
-    Initiates the AutoGen group chat with the given prompt.
-    Clears previous chat history and sets the chatting state.
-    """
-    st.session_state.chat_history = [] # Clear previous conversation history
-    st.session_state.is_chatting = True # Set flag to indicate conversation is active
-
-    # Optional: Start AutoGen Runtime Logging to a .log file.
-    # This is separate from the Streamlit UI log but can be useful for detailed debugging.
-    # logging_session_id = autogen.runtime_logging.start(logger_type="file", config={"filename": "conversation_log.log"})
-    # print(f"AutoGen logging started. Session ID: {logging_session_id}")
-    # print("Logs will be saved to 'conversation_log.log'.")
+    st.session_state.chat_history = []
+    st.session_state.is_chatting = True
 
     try:
-        # Initiate the chat with the manager and the user's prompt
         user_proxy.initiate_chat(
             manager,
             message=prompt
         )
     except Exception as e:
-        # Display any errors that occur during the conversation
         st.error(f"An error occurred during the AutoGen conversation: {e}")
     finally:
-        st.session_state.is_chatting = False # Reset chatting flag
-        # Optional: Stop AutoGen logging when the conversation concludes
-        # autogen.runtime_logging.stop()
+        st.session_state.is_chatting = False
 
 
 # --- Streamlit UI Layout ---
@@ -196,40 +168,37 @@ collaborate to write, review, and test Python code.
 Enter your development request below, and watch the agents work together!
 """)
 
-# Text area for the user to input their development request
+#     Write a Python script that finds the first 10 prime numbers.
+
 user_question = st.text_area(
     "Your Development Request:",
-    # Pre-fill with the example prompt for convenience
-    value="""Write a Python script that finds the first 10 prime numbers.
-The script should print these numbers to the console.
+    value="""Write a Python script that prints 'Hello, World!' to the console.""",
+    height=200,
+    key="user_request_input"
+)
+
+final_request = f"""{user_question}\n
+The script should print the output to the console.
 Ensure the code is reviewed for correctness, efficiency, and proper documentation (docstrings and comments).
 **After the application code is reviewed, a Test Engineer should generate unit tests for it. The Test Engineer's code should then also be reviewed by the Code Reviewer for quality before I execute those tests to ensure correctness.**
 Once tests pass and the application code is finalized, I will provide final approval to run the main script.
-""",
-    height=200, # Set height for better user experience
-    key="user_request_input" # Unique key for the widget
-)
+"""
 
-# Button to start the conversation. It's disabled while a conversation is active.
 if st.button("Start AI Conversation", disabled=st.session_state.is_chatting):
     if user_question:
-        # Show a spinner while agents are working, as it can take time
         with st.spinner("AI Agents are collaborating... This may take a few minutes, please be patient."):
             run_autogen_conversation(user_question)
     else:
         st.warning("Please enter a development request to start the conversation.")
 
-st.markdown("---") # Separator for visual clarity
+st.markdown("---")
 st.subheader("Conversation Log:")
 
-# Display the conversation history
 if st.session_state.chat_history:
     for i, msg in enumerate(st.session_state.chat_history):
         sender = msg["sender"]
         content = msg["message"]
 
-        # Use different Streamlit components or Markdown for different agents
-        # to visually distinguish their messages.
         if sender == "Admin":
             st.info(f"**{sender}:**\n\n{content}")
         elif sender == "Coder":
@@ -237,12 +206,10 @@ if st.session_state.chat_history:
         elif sender == "Reviewer":
             st.warning(f"**{sender}:**\n\n{content}")
         elif sender == "Test_Engineer":
-            # Using st.error for Test Engineer for a distinct color, can be adjusted
             st.error(f"**{sender}:**\n\n{content}")
         else:
             st.write(f"**{sender}:**\n\n{content}")
 
-        # Add a horizontal rule between messages for better readability
         if i < len(st.session_state.chat_history) - 1:
             st.markdown("---")
 else:
@@ -250,4 +217,3 @@ else:
 
 st.markdown("---")
 st.markdown("For more details, check the `coding` directory for any generated files (e.g., Python scripts, test files).")
-
