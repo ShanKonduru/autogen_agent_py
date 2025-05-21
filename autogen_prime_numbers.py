@@ -1,13 +1,12 @@
 import autogen
-import os
 from dotenv import load_dotenv
 
+import os
+
 # --- Load environment variables ---
-# This will load variables from the .env file into os.environ
 load_dotenv()
 
 # --- Configuration ---
-# Get the API key from environment variables
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 if not openai_api_key:
@@ -16,14 +15,13 @@ if not openai_api_key:
 # Define the config_list directly using the loaded API key
 config_list = [
     {
-        "model": "gpt-4",  # You can change this to "gpt-3.5-turbo" or other models
+        "model": "gpt-4", 
         "api_key": openai_api_key,
     },
-    # You can add more configurations if you have other models or API keys
-    # {
-    #     "model": "gpt-3.5-turbo",
-    #     "api_key": os.getenv("ANOTHER_OPENAI_API_KEY"), # If you have another key for 3.5
-    # }
+    {
+        "model": "gpt-3.5-turbo",
+        "api_key": openai_api_key
+    }
 ]
 
 
