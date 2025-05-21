@@ -20,12 +20,6 @@ config_list = [
         "model": "gpt-3.5-turbo",
         "api_key": openai_api_key
     }
-    # Add Ollama config here if you want it as a fallback for all agents
-    # {
-    #     "model": "llama3",
-    #     "api_type": "ollama",
-    #     "base_url": "http://localhost:11434/v1",
-    # }
 ]
 
 # --- Start AutoGen Runtime Logging to a .log file ---
@@ -33,9 +27,7 @@ logging_session_id = autogen.runtime_logging.start(logger_type="file", config={"
 print(f"AutoGen logging started. Session ID: {logging_session_id}")
 print("Logs will be saved to 'conversation_log.log'.")
 
-
 # --- Agent Definitions ---
-
 user_proxy = autogen.UserProxyAgent(
     name="Admin",
     system_message="A human administrator who will review the code and provide final approval for execution. You will also execute tests and report results.",
@@ -101,7 +93,6 @@ test_engineer = autogen.AssistantAgent(
     """
 )
 
-
 # --- Group Chat Setup ---
 groupchat = autogen.GroupChat(
     agents=[user_proxy, assistant, reviewer, test_engineer],
@@ -111,7 +102,6 @@ groupchat = autogen.GroupChat(
 )
 
 manager = autogen.GroupChatManager(groupchat=groupchat, llm_config={"config_list": config_list})
-
 
 # --- Initiate the chat ---
 print("\n--- Starting the AutoGen Conversation ---")
